@@ -49,7 +49,7 @@ void print_error(int errorcode)
 {
     if(errorcode == WRONG_ARGUMENTS_ERROR)
     {
-        std::cerr << "Neznámy argument, špatný počet nebo kombinace argumentů" << std::endl;
+        std::cerr << "Neznámý argument, špatný počet nebo kombinace argumentů" << std::endl;
     }
     else if (errorcode == WRONG_ARGUMENT_NUMBER_ERROR)
     {
@@ -80,7 +80,7 @@ void print_error(int errorcode)
     {
         std::cerr << "Chyba při pcap_loop()" << std::endl;
     }
-    std::cerr << "Použijte argument --help pro nápovědu";
+    std::cerr << "Použijte argument --help pro nápovědu" << std::endl;
     exit(2);
 }
 
