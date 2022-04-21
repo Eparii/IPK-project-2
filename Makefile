@@ -1,5 +1,5 @@
 CC = g++
-CFLAGS = -g -Wall -Wextra -pedantic
+CFLAGS = -g -pedantic
 TARGET = ipk-sniffer
 FILES = ipk-sniffer.cpp
 all: $(TARGET)

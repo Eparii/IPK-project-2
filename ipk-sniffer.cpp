@@ -1,10 +1,16 @@
+/*
+ * Autor: Tetauer Pavel
+ * Login: xtetau00
+ * Rok: 2021/22
+*/
+
+
+
 #include <iostream>
 #include <bitset>
 #include <cstring>
-#include <csignal>
 #include <cstdio>
 #include <cstdlib>
-#include <cstdio>
 #include <pcap.h>
 #include <arpa/inet.h>
 #include <netinet/ether.h>
@@ -13,6 +19,7 @@
 #include <netinet/udp.h>
 #include <netinet/ip_icmp.h>
 #include <ctime>
+#include <csignal>
 
 #define WRONG_ARGUMENTS_ERROR 10
 #define WRONG_ARGUMENT_NUMBER_ERROR 11
@@ -24,7 +31,7 @@
 #define PCAP_LOOP_ERROR 17
 
 #define ETHERNET_SIZE 14
-#define IPV6_HEADER_SIZE 40
+#define IPV6_HEADER_LEN 40
 
 bool interface_arg;
 std::string interface_name;
@@ -34,42 +41,46 @@ bool tcp_arg;
 bool udp_arg;
 bool arp_arg;
 bool icmp_arg;
+pcap_t *interface; // globalni kvuli pristupnosti ze signal handling funkce
+
 
 // funkce slouzici k vypisu chybovych hlasek a ukonceni programu
 void print_error(int errorcode)
 {
     if(errorcode == WRONG_ARGUMENTS_ERROR)
     {
-        std::cerr << "Wrong number of arguments" << std::endl;
+        std::cerr << "Špatný počet nebo kombinace argumentů" << std::endl;
     }
     else if (errorcode == WRONG_ARGUMENT_NUMBER_ERROR)
     {
-        std::cerr << "Wrong number after -p or -n argument" << std::endl;
+        std::cerr << "Špatné číslo po argumentu -p nebo -n" << std::endl;
+        std::cerr << "Číslo portu musí být v intervalu <0, 65535>" << std::endl;
     }
     else if (errorcode == OPENING_INTERFACE_ERROR)
     {
-        std::cerr << "Error in opening entered interface" << interface_name << std::endl;
+        std::cerr << "Chyba při otevírání rozhraní " << interface_name << std::endl;
     }
     else if (errorcode == NO_ETHERNET_HEADER_ERROR)
     {
-        std::cerr << "Entered interface_name " << interface_name << " doesn't provide Ethernet headers" << std::endl;
+        std::cerr << "Zvolené rozhraní " << interface_name << " neposkytuje Ethernet protokol" << std::endl;
     }
     else if (errorcode == NETMASK_ERROR)
     {
-        std::cerr << "Problem with getting mask for interface_name " << interface_name << std::endl;
+        std::cerr << "Chyba při získánání masky pro " << interface_name << std::endl;
     }
     else if (errorcode == FILTER_COMPILING_ERROR)
     {
-        std::cerr << "Problem with filter compiling" << std::endl;
+        std::cerr << "Chyba při kompilaci filtru" << std::endl;
     }
     else if (errorcode == FILTER_APPLYING_ERROR)
     {
-        std::cerr << "Problem with filter applying" << std::endl;
+        std::cerr << "Chyba při aplikaci filtru" << std::endl;
     }
     else if (errorcode == PCAP_LOOP_ERROR)
     {
-        std::cerr << "Problem in pcap_loop()" << std::endl;
+        std::cerr << "Chyba při pcap_loop()" << std::endl;
     }
+    std::cerr << "Použijte argument --help pro nápovědu";
     exit(2);
 }
 
@@ -82,6 +93,26 @@ void parse_arguments(int argc, char* argv[])
     for (int i = 1; i < argc; i++)
     {
         char* ptr; // slouzi pro ukladani znaku, ktere nasleduji po cisle
+        if (strcmp(argv[i], "--help") == 0)
+        {
+            if (argc != 2)
+            {
+                print_error(WRONG_ARGUMENTS_ERROR);
+            }
+            else
+            {
+                std::cerr << "Použití: sudo ./ipk-sniffer [-i rozhraní | --interface rozhraní]"
+                             "{-p port} {[--tcp|-t] [--udp|-u] [--arp] [--icmp] } {-n num}\n\n"
+                             "rozhraní = právě jedno rozhraní, na kterém se bude poslouchat\n"
+                             "port = filtrování paketů na daném rozhraní podle portu\n"
+                             "tcp = bude zobrazovat pouze TCP pakety\n"
+                             "udp = bude zobrazovat pouze TCP pakety\n"
+                             "icmp = bude zobrazovat pouze ICMPv4 a ICMPv6 pakety\n"
+                             "arp = bude zobrazovat pouze ARP rámce\n"
+                             "num = počet zobrazených packetů\n";
+                exit(0);
+            }
+        }
         if (strcmp(argv[i], "-i") == 0 || strcmp(argv[i], "--interface_name") == 0)
         {
             if (interface_arg)
@@ -103,7 +134,7 @@ void parse_arguments(int argc, char* argv[])
             if (i + 1 == argc)
                 print_error(WRONG_ARGUMENTS_ERROR);
             port = (int)strtol(argv[i + 1], &ptr, 10);
-            if (*ptr != '\0')
+            if (*ptr != '\0' || port < 0 || port > 65535)
             {
                 print_error(WRONG_ARGUMENT_NUMBER_ERROR);
             }
@@ -147,12 +178,41 @@ void parse_arguments(int argc, char* argv[])
             icmp_arg = true;
         }
     }
+    // defaultne se uvazuje zachyceni jednoho packetu
+    if (!packet_num)
+        packet_num = 1;
 }
 
 // funkce slouzici pro vytvoreni filtru
 std::string create_filter()
 {
     std::string filter;
+    // osetruje jak samotny tcp, tak i kombinaci s udp
+    if (tcp_arg)
+    {
+        filter = udp_arg ? "(tcp or udp" : "(tcp";
+        filter = port ? filter + " and port " + std::to_string(port) + ")" : filter + ")";
+    }
+    // osetruje pouze samotne udp, kombinace s tcp je resena v predchozim ifu
+    else if (udp_arg)
+    {
+        filter = "(udp";
+        filter = port ? filter + " and port " + std::to_string(port) + ")" : filter + ")";
+    }
+    if (arp_arg)
+    {
+        filter = !tcp_arg and !udp_arg ?  "arp" : filter + " or arp";
+    }
+    if (icmp_arg)
+    {
+        filter = !tcp_arg and !udp_arg and !arp_arg ? "icmp or icmp6" : filter + " or icmp or icmp6";
+    }
+    // neni zadany zadny argument specifikujici protokol
+    if (!tcp_arg and !udp_arg and !arp_arg and !icmp_arg)
+    {
+        filter = port ? "(tcp or udp and port " + std::to_string(port) + ") or arp or icmp or icmp6"
+                : "tcp or udp or arp or icmp or icmp6";
+    }
     return filter;
 }
 
@@ -170,6 +230,7 @@ void get_all_interfaces()
     exit(0);
 }
 
+// funkce slouzici pro vypsani casu zachyceni packetu
 void print_timestamp(timeval time)
 {
     auto tm = localtime(&time.tv_sec);
@@ -185,6 +246,7 @@ void print_timestamp(timeval time)
     std::cout << time_string << std::endl;
 }
 
+// funkce slouzici pro vypsani mac adres
 void print_mac_addresses(struct ether_header *eth_header)
 {
     printf("src MAC: ");
@@ -202,42 +264,99 @@ void print_mac_addresses(struct ether_header *eth_header)
     printf("%02x\n", eth_header->ether_dhost[5]);
 }
 
-void print_ips_arp(struct ether_arp* arp_packet)
+// funkce slouzici pro vypsani IP adres z ARP packetu
+void print_ips_arp(struct ether_arp* arp_header)
 {
     printf("src IP: ");
     for (int i = 0; i < 3; i++)
     {
-        printf("%d.", arp_packet->arp_spa[i]);
+        printf("%d.", arp_header->arp_spa[i]);
     }
-    printf("%d\n", arp_packet->arp_spa[3]);
+    printf("%d\n", arp_header->arp_spa[3]);
 
     printf("dst IP: ");
     for (int i = 0; i < 3; i++)
     {
-        printf("%d.", arp_packet->arp_tpa[i]);
+        printf("%d.", arp_header->arp_tpa[i]);
     }
-    printf("%d\n", arp_packet->arp_tpa[3]);
+    printf("%d\n", arp_header->arp_tpa[3]);
 }
 
-void print_ips_ipv4(struct ip* ipv4_packet)
+// funkce slouzici pro vypsani IP adres z ipv4 packetu
+void print_ips_ipv4(struct ip* ipv4_header)
 {
-    auto src_ip = inet_ntoa(ipv4_packet->ip_dst);
-    auto dst_ip = inet_ntoa(ipv4_packet->ip_dst);
+    auto src_ip = inet_ntoa(ipv4_header->ip_dst);
+    auto dst_ip = inet_ntoa(ipv4_header->ip_dst);
     printf("src IP: %s\n", src_ip);
     printf("dst IP: %s\n", dst_ip);
 }
 
-void print_ips_ipv6(struct ip6_hdr* ipv6_packet)
+// funkce slouzici pro vypsani IP adres z ipv6 packetu
+void print_ips_ipv6(struct ip6_hdr* ipv6_header)
 {
     char src_address[256]{};
     char dst_address[256]{};
 
-    inet_ntop(AF_INET6, &(ipv6_packet->ip6_src), src_address, INET6_ADDRSTRLEN);
-    inet_ntop(AF_INET6, &(ipv6_packet->ip6_dst), dst_address, INET6_ADDRSTRLEN);
+    inet_ntop(AF_INET6, &(ipv6_header->ip6_src), src_address, INET6_ADDRSTRLEN);
+    inet_ntop(AF_INET6, &(ipv6_header->ip6_dst), dst_address, INET6_ADDRSTRLEN);
 
     std::cout << "src IP: " << src_address << std::endl;
     std::cout << "dst IP: " << dst_address << std::endl;
 
+}
+
+// funkce slouzici pro vypis dat ve stanovenem formatu
+void print_data(const u_char *packet, bpf_u_int32 size)
+{
+    uint counter = 0;
+    uint i = 0;
+    uint j = 0;
+    std::cout << "0x0000:  ";
+    while (i < size)
+    {
+        printf("%02x ", packet[i]); // nejprve tiskne v hexadecimalnim formatu
+        if ((i + 1) % 16 == 0 || i + 1 == size) // po precteni 16 bajtu vypisuje v ascii formatu
+        {
+            if ((i + 1) % 16 != 0) // padding pro posledni radek
+            {
+                uint x = i;
+                while ((x + 1) % 16 != 0)
+                {
+                    printf("   ");
+                    x++;
+                }
+            }
+            printf(" "); // mezera mezi ascii a hex formaty
+            while (j <= i)
+            {
+                // pokud je znak tisknutelny, vypise ho, jinak misto nej napise tecku
+                printf("%c", isprint(packet[j]) ? packet[j] : '.');
+                j++;
+
+            }
+            // novy radek
+            std::cout << std::endl;
+            if (i + 1 < size)
+            {
+                counter += 16;
+                printf("0x%04x:  ", counter);
+            }
+        }
+        i++;
+    }
+}
+
+// funkce slouzici na vytisknuti udp portu
+void print_ports_udp(udphdr* udp_header)
+{
+    printf("src port: %d\n", ntohs(udp_header->uh_sport));
+    printf("dst port: %d\n", ntohs(udp_header->uh_dport));
+}
+
+void print_ports_tcp(tcphdr* tcp_header)
+{
+    printf("src port: %d\n", ntohs(tcp_header->th_sport));
+    printf("src port: %d\n", ntohs(tcp_header->th_dport));
 }
 
 
@@ -248,74 +367,92 @@ void callback(u_char *args, const struct pcap_pkthdr *header, const u_char *pack
     print_timestamp(header->ts);
     auto *eth_header = (struct ether_header *) packet;
     print_mac_addresses(eth_header);
-    struct ip* ipv4_packet;
+    struct ip* ipv4_header;
     int ipv4_header_size;
-    struct ip6_hdr* ipv6_packet;
-    struct icmphdr* icmp_packet;
-    struct tcphdr* tcp_packet;
-    struct udphdr* udp_packet;
-    struct ether_arp* arp_packet;
+    struct ip6_hdr* ipv6_header;
+    struct tcphdr* tcp_header;
+    struct udphdr* udp_header;
+    struct ether_arp* arp_header;
 
 
     std::cout << "frame length: " << header->caplen << " bytes" << std::endl;
     switch (ntohs(eth_header->ether_type))
     {
         case ETHERTYPE_IP:
-            ipv4_packet = (struct ip*)(packet + ETHERNET_SIZE); // preskoci ethernet header
-            print_ips_ipv4(ipv4_packet);
-            ipv4_header_size = ipv4_packet->ip_hl * 4; // vypocet delky ip hlavicky
-            switch (ipv4_packet->ip_p) // ip_p obsahuje informace o protokolu
+            ipv4_header = (struct ip*)(packet + ETHERNET_SIZE); // preskoci ethernet header
+            print_ips_ipv4(ipv4_header);
+            ipv4_header_size = ipv4_header->ip_hl * 4; // vypocet delky ip hlavicky
+            switch (ipv4_header->ip_p) // ip_p obsahuje informace o protokolu
             {
                 case IPPROTO_TCP:
-                    printf("tcp\n");
+                    // pointerova aritmetika pro ziskani TCP hlavicky, preskoci ethernet header
+                    // a zaroven preskoci i IPv4 header pomoci vypocitane delky
+                    tcp_header = (struct tcphdr*)(packet + ETHERNET_SIZE + ipv4_header_size);
+                    print_ports_tcp(tcp_header);
+                    print_data(packet, header->caplen);
                     break;
                 case IPPROTO_UDP:
-                    printf("udp\n");
+                    // pointerova aritmetika pro ziskani UDP hlavicky, preskoci ethernet header
+                    // a zaroven preskoci i IPv4 header pomoci vypocitane delky
+                    udp_header = (struct udphdr*)(packet + ETHERNET_SIZE + ipv4_header_size);
+                    print_ports_udp(udp_header);
+                    print_data(packet, header->caplen);
                     break;
                 case IPPROTO_ICMP:
-                    printf("icmp4\n");
+                    print_data(packet, header->caplen);
                     break;
             }
             break;
         case ETHERTYPE_IPV6:
-            ipv6_packet = (struct ip6_hdr*)(packet + ETHERNET_SIZE); // preskoci ethernet header
-            print_ips_ipv6(ipv6_packet);
-            switch (ipv6_packet->ip6_ctlun.ip6_un1.ip6_un1_nxt) // next header, obsahuje informace o protokolu
+            ipv6_header = (struct ip6_hdr*)(packet + ETHERNET_SIZE); // preskoci ethernet header
+            print_ips_ipv6(ipv6_header);
+            switch (ipv6_header->ip6_ctlun.ip6_un1.ip6_un1_nxt) // next header, obsahuje informace o protokolu
+            {
                 case IPPROTO_TCP:
-                    printf("tcp\n");
+                    tcp_header = (struct tcphdr*)(packet + ETHERNET_SIZE + IPV6_HEADER_LEN);
+                    print_ports_tcp(tcp_header);
+                    print_data(packet, header->caplen);
                     break;
                 case IPPROTO_UDP:
-                    printf("udp\n");
+                    udp_header = (struct udphdr*)(packet + ETHERNET_SIZE + IPV6_HEADER_LEN);
+                    print_ports_udp(udp_header);
+                    print_data(packet, header->caplen);
                     break;
                 case IPPROTO_ICMPV6:
-                    printf("icmp6\n");
+                    print_data(packet, header->caplen);
                     break;
+            }
+            break;
         case ETHERTYPE_ARP:
-            arp_packet = (struct ether_arp*)(packet + ETHERNET_SIZE); // preskoci ethernet header
-            print_ips_arp(arp_packet);
+            arp_header = (struct ether_arp*)(packet + ETHERNET_SIZE); // preskoci ethernet header
+            print_ips_arp(arp_header);
+            print_data(packet, header->caplen);
             break;
         default:
-            std::cout << "UNSUPPORTED PROTOCOL" << std::endl;
+            std::cout << "Nepodporovaný protokol" << std::endl;
             break;
     }
     std::cout << std::endl;
 }
 
+void my_handler(int param)
+{
+    pcap_close(interface);
+    exit(130);
+}
+
 int main(int argc, char* argv[])
 {
     parse_arguments(argc, argv);
+    // pokud neni zadan argument -i, nebo je zadan bez nazvu rozhrani,
+    // vypise vsechny dostupne rozhrani a ukonci program
     if ((interface_arg && interface_name.empty()) || !interface_arg)
     {
         get_all_interfaces();
     }
-
-    char errorbuffer[PCAP_ERRBUF_SIZE];
-    pcap_t *interface;
-    struct pcap_pkthdr header{};
     bpf_u_int32 mask; // maska site zadaneho rozhrani
     bpf_u_int32 net; // ip adresa zadaneho rozhrani
     struct bpf_program filter_pointer{}; // vraci pcap_compile, nachazi se zde zkompilovany filtr
-    const u_char *packet; // aktualni packet
 
     /////////////////////////////////////////////////////////////////////////////////////////
     //////                                                                             //////
@@ -325,13 +462,18 @@ int main(int argc, char* argv[])
     /////////////////////////////////////////////////////////////////////////////////////////
 
     // zjisti IP adresu a masku pro zvoleny interface
-    if (pcap_lookupnet(interface_name.c_str(), &net, &mask, errorbuffer) == -1)
+    if (pcap_lookupnet(interface_name.c_str(), &net, &mask, nullptr) == -1)
         print_error(NETMASK_ERROR);
 
     // otevre zadane rozhrani pro sniffing
-    interface = pcap_open_live(interface_name.c_str(), BUFSIZ, 1, 1000, errorbuffer);
+    interface = pcap_open_live(interface_name.c_str(), BUFSIZ, 1, 1000, nullptr);
     if (interface == nullptr)
         print_error(OPENING_INTERFACE_ERROR);
+
+    // sigint handling
+    // kod prevzat z https://www.cplusplus.com/reference/csignal/signal/
+    void (*prev_handler)(int);
+    prev_handler = signal (SIGINT, my_handler);
 
     // overi, zda se jedna o ethernet, nic jine tento program nepodporuje
     if (pcap_datalink(interface) != DLT_EN10MB)
@@ -346,10 +488,10 @@ int main(int argc, char* argv[])
     if (pcap_setfilter(interface, &filter_pointer) == -1)
         print_error(FILTER_APPLYING_ERROR);
 
+    // smycka, ve ktere se vola callback funkce pro kazdy packet
     if (pcap_loop(interface, packet_num, callback, nullptr) == -1)
         print_error(PCAP_LOOP_ERROR);
 
     // ukonci sniffing session
     pcap_close(interface);
-
 }
