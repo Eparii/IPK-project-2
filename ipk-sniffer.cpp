@@ -49,7 +49,7 @@ void print_error(int errorcode)
 {
     if(errorcode == WRONG_ARGUMENTS_ERROR)
     {
-        std::cerr << "Špatný počet nebo kombinace argumentů" << std::endl;
+        std::cerr << "Neznámy argument, špatný počet nebo kombinace argumentů" << std::endl;
     }
     else if (errorcode == WRONG_ARGUMENT_NUMBER_ERROR)
     {
@@ -113,7 +113,7 @@ void parse_arguments(int argc, char* argv[])
                 exit(0);
             }
         }
-        if (strcmp(argv[i], "-i") == 0 || strcmp(argv[i], "--interface_name") == 0)
+        else if (strcmp(argv[i], "-i") == 0 || strcmp(argv[i], "--interface_name") == 0)
         {
             if (interface_arg)
                 print_error(WRONG_ARGUMENTS_ERROR);
@@ -140,7 +140,7 @@ void parse_arguments(int argc, char* argv[])
             }
             i++; // preskoci se nasledujici argument, ve kterem se nachazi cislo portu
         }
-        if (strcmp(argv[i], "-n") == 0)
+        else if (strcmp(argv[i], "-n") == 0)
         {
             if (packet_num)
                 print_error(WRONG_ARGUMENTS_ERROR);
@@ -176,6 +176,10 @@ void parse_arguments(int argc, char* argv[])
             if (icmp_arg)
                 print_error(WRONG_ARGUMENTS_ERROR);
             icmp_arg = true;
+        }
+        else
+        {
+            print_error(WRONG_ARGUMENTS_ERROR);
         }
     }
     // defaultne se uvazuje zachyceni jednoho packetu
