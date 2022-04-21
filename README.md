@@ -5,7 +5,9 @@ zachytává a filtruje pakety. Je nutno ho spouštět s rootovskými právy.
 
 ### Volání programu:
 
-> sudo ./ipk-sniffer {--help} [-i rozhraní | --interface rozhraní] {-p port} {[--tcp|-t] [--udp|-u] [--arp] [--icmp] } {-n num}'
+```
+sudo ./ipk-sniffer {--help} [-i rozhraní | --interface rozhraní] {-p port} {[--tcp|-t] [--udp|-u] [--arp] [--icmp] } {-n num}'
+```
 
 V případě použítí --help dojde k vypsání nápovědy.  
 **Tento argument nelze kombinovat s jinými argumenty**  
@@ -16,13 +18,21 @@ v úvahu při žádném způsobu spuštění programu.
 
 ### Příklady spuštění:
 
-> ./ipk-sniffer --help
+```
+./ipk-sniffer --help
+```
 
-> sudo ./ipk-sniffer -i eth0
+```
+sudo ./ipk-sniffer -i eth0
+```
 
-> sudo ./ipk-sniffer -i
+```
+sudo ./ipk-sniffer -i
+```
 
-> sudo ./ipk-sniffer -i eth0 --icmp -p 80
+```
+sudo ./ipk-sniffer -i eth0 --icmp -p 80
+```
 
 
 ### Seznam odevzdaných souborů:
