@@ -285,17 +285,17 @@ void print_ips_arp(struct ether_arp* arp_header)
 // funkce slouzici pro vypsani IP adres z ipv4 packetu
 void print_ips_ipv4(struct ip* ipv4_header)
 {
-    auto src_ip = inet_ntoa(ipv4_header->ip_dst);
-    auto dst_ip = inet_ntoa(ipv4_header->ip_dst);
-    printf("src IP: %s\n", src_ip);
-    printf("dst IP: %s\n", dst_ip);
+    std::string src_ip = inet_ntoa(ipv4_header->ip_src);
+    std::string dst_ip = inet_ntoa(ipv4_header->ip_dst);
+    printf("src IP: %s\n", src_ip.c_str());
+    printf("dst IP: %s\n", dst_ip.c_str());
 }
 
 // funkce slouzici pro vypsani IP adres z ipv6 packetu
 void print_ips_ipv6(struct ip6_hdr* ipv6_header)
 {
-    char src_address[256]{};
-    char dst_address[256]{};
+    char src_address[128]{};
+    char dst_address[128]{};
 
     inet_ntop(AF_INET6, &(ipv6_header->ip6_src), src_address, INET6_ADDRSTRLEN);
     inet_ntop(AF_INET6, &(ipv6_header->ip6_dst), dst_address, INET6_ADDRSTRLEN);
