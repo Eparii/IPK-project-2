@@ -31,7 +31,7 @@ sudo ./ipk-sniffer -i
 ```
 
 ```
-sudo ./ipk-sniffer -i eth0 --icmp -p 80
+sudo ./ipk-sniffer -i eth0 --tcp -p 80
 ```
 
 
